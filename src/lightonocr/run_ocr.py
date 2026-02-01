@@ -134,19 +134,22 @@ def main():
                 thread = Thread(target=model.generate, kwargs=generation_kwargs)
                 thread.start()
 
+                spinner = ["|", "/", "-", "\\"]
                 token_count = 0
                 for new_text in streamer:
                     output_stream.write(new_text)
                     output_stream.flush()
                     token_count += 1
-                    if token_count % 10 == 0:
-                        print(".", file=sys.stderr, end="", flush=True)
+
+                    # Animate a spinner on stderr every token
+                    s_idx = token_count % len(spinner)
+                    print(f"\r      Generating OCR output... {spinner[s_idx]}", file=sys.stderr, end="", flush=True)
 
                 output_stream.write("\n\n")
                 output_stream.flush()
 
                 gen_duration = time.time() - start_gen
-                print(f" Done. ({gen_duration:.1f}s)", file=sys.stderr)
+                print(f"\r      Generating OCR output... Done. ({gen_duration:.1f}s)", file=sys.stderr)
 
     except KeyboardInterrupt:
         print("\n\nInterrupted by user. Exiting...", file=sys.stderr)
