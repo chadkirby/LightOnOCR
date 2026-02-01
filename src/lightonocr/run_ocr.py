@@ -10,6 +10,26 @@ import re
 import time
 import datetime
 
+def format_ranges(nums):
+    """Converts a list of numbers into a concise range string (e.g. [1, 2, 3, 5] -> '1-3, 5')."""
+    if not nums:
+        return ""
+    nums = sorted(list(set(nums)))
+    ranges = []
+    if not nums:
+        return ""
+
+    start = nums[0]
+    for i in range(len(nums)):
+        if i + 1 == len(nums) or nums[i+1] != nums[i] + 1:
+            if start == nums[i]:
+                ranges.append(str(start))
+            else:
+                ranges.append(f"{start}-{nums[i]}")
+            if i + 1 < len(nums):
+                start = nums[i+1]
+    return ", ".join(ranges)
+
 def humanize_count(n):
     """Humanizes an integer count (e.g. 1500 -> 1.5k, 1250000 -> 1.25m)."""
     if n < 1000:
@@ -119,6 +139,11 @@ def main():
             else:
                 target_indices = list(range(num_pages))
 
+            requested_pages_str = args.pages or args.indices or f"1-{num_pages}"
+            included_pages = []
+            total_tokens = 0
+            overall_start_time = time.time()
+
             print(f"Processing {len(target_indices)} pages from '{args.pdf}'...", file=sys.stderr)
 
             for i, page_idx in enumerate(target_indices):
@@ -166,6 +191,7 @@ def main():
                     print(f"\r      Generating OCR output... {spinner[s_idx]} ({h_count} tokens)", file=sys.stderr, end="", flush=True)
 
                 total_tokens += token_count
+                included_pages.append(page_idx + 1)
                 output_stream.write("\n\n")
                 output_stream.flush()
 
@@ -173,34 +199,37 @@ def main():
                 h_count = humanize_count(token_count)
                 print(f"\r      Generating OCR output... Done. ({gen_duration:.1f}s, {h_count} tokens)", file=sys.stderr)
 
-        # If we successfully reached here and were writing to a file, prepend metadata and move it
-        if output_path:
-            output_stream.close()
+                # Update the final output file incrementally after each page
+                if output_path:
+                    # Flush the temp file to ensure we read everything
+                    output_stream.flush()
 
-            # Read back the partial results
-            with open(temp_path, "r") as f:
-                content = f.read()
+                    with open(temp_path, "r") as f:
+                        content = f.read()
 
-            # Prepare metadata
-            duration = time.time() - overall_start_time
-            iso_date = datetime.datetime.now().astimezone().isoformat()
-            rel_pdf = os.path.relpath(args.pdf)
+                    current_duration = time.time() - overall_start_time
+                    iso_date = datetime.datetime.now().astimezone().isoformat()
+                    rel_pdf = os.path.relpath(args.pdf)
+                    included_pages_str = format_ranges(included_pages)
 
-            metadata = f"""---
+                    metadata = f"""---
 Date: {iso_date}
 PDF_File: {rel_pdf}
-Page_Count: {len(target_indices)}
+Total_Pages: {num_pages}
+OCR_Pages: {included_pages_str}
 Token_Count: {total_tokens}
-Duration: {duration:.1f}s
+Duration: {current_duration:.1f}s
 ---
 
 """
-            # Write metadata + content to the final destination
-            with open(output_path, "w") as f:
-                f.write(metadata)
-                f.write(content)
+                    # Write to a secondary temp file then move atomically to final destination
+                    interim_temp = f"{output_path}.new"
+                    with open(interim_temp, "w") as f:
+                        f.write(metadata)
+                        f.write(content)
+                    os.replace(interim_temp, output_path)
 
-            # Cleanup temp file
+            # Cleanup temp file on full success
             if os.path.exists(temp_path):
                 os.remove(temp_path)
 
