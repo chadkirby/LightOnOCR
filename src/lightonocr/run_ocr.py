@@ -6,6 +6,7 @@ import os
 import sys
 import argparse
 import re
+import time
 
 def parse_pages(pages_str, num_pages, offset=0):
     """Parses a page range string into a list of indices."""
@@ -64,6 +65,7 @@ def main():
     group.add_argument("-i", "--indices", help="0-based page indices (e.g. '0', '0-4', '0,2,4'). Matching programmer/array numbering.")
 
     parser.add_argument("-o", "--output", help="Output file path. Defaults to stdout (standard output).")
+    parser.add_argument("--max-tokens", type=int, default=4096, help="Maximum new tokens to generate per page (default: 4096).")
 
     args = parser.parse_args()
 
@@ -100,11 +102,13 @@ def main():
             print(f"Processing {len(target_indices)} pages from '{args.pdf}'...", file=sys.stderr)
 
             for i, page_idx in enumerate(target_indices):
-                print(f"[{i+1}/{len(target_indices)}] Processing page {page_idx + 1} (index {page_idx})...", file=sys.stderr)
+                print(f"[{i+1}/{len(target_indices)}] Rendering page {page_idx + 1} (index {page_idx})...", file=sys.stderr, end="", flush=True)
 
                 page = pdf[page_idx]
                 bitmap = page.render(scale=2)
                 pil_image = bitmap.to_pil()
+
+                print(" Done.", file=sys.stderr)
 
                 conversation = [{"role": "user", "content": [{"type": "image", "image": pil_image}]}]
 
@@ -118,7 +122,14 @@ def main():
 
                 inputs = {k: v.to(device=device, dtype=dtype) if v.is_floating_point() else v.to(device) for k, v in inputs.items()}
 
-                output_ids = model.generate(**inputs, max_new_tokens=4096)
+                print(f"      Generating OCR output...", file=sys.stderr, end="", flush=True)
+                start_gen = time.time()
+
+                output_ids = model.generate(**inputs, max_new_tokens=args.max_tokens)
+
+                gen_duration = time.time() - start_gen
+                print(f" Done. ({gen_duration:.1f}s)", file=sys.stderr)
+
                 generated_ids = output_ids[0, inputs["input_ids"].shape[1]:]
                 output_text = processor.decode(generated_ids, skip_special_tokens=True)
 
@@ -127,6 +138,9 @@ def main():
                 output_stream.write("\n\n")
                 output_stream.flush()
 
+    except KeyboardInterrupt:
+        print("\n\nInterrupted by user. Exiting...", file=sys.stderr)
+        sys.exit(1)
     finally:
         if args.output:
             output_stream.close()
