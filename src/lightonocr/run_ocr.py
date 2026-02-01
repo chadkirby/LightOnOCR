@@ -9,6 +9,14 @@ import argparse
 import re
 import time
 
+def humanize_count(n):
+    """Humanizes an integer count (e.g. 1500 -> 1.5k, 1250000 -> 1.25m)."""
+    if n < 1000:
+        return str(n)
+    if n < 1000000:
+        return f"{n / 1000:.1f}k"
+    return f"{n / 1000000:.2f}m"
+
 def parse_pages(pages_str, num_pages, offset=0):
     """Parses a page range string into a list of indices."""
     if not pages_str:
@@ -143,13 +151,15 @@ def main():
 
                     # Animate a spinner and show token count on stderr
                     s_idx = token_count % len(spinner)
-                    print(f"\r      Generating OCR output... {spinner[s_idx]} ({token_count:05d} tokens)", file=sys.stderr, end="", flush=True)
+                    h_count = humanize_count(token_count)
+                    print(f"\r      Generating OCR output... {spinner[s_idx]} ({h_count} tokens)", file=sys.stderr, end="", flush=True)
 
                 output_stream.write("\n\n")
                 output_stream.flush()
 
                 gen_duration = time.time() - start_gen
-                print(f"\r      Generating OCR output... Done. ({gen_duration:.1f}s, {token_count} tokens)", file=sys.stderr)
+                h_count = humanize_count(token_count)
+                print(f"\r      Generating OCR output... Done. ({gen_duration:.1f}s, {h_count} tokens)", file=sys.stderr)
 
         output_stream.write("<!-- DONE -->\n")
         output_stream.flush()
