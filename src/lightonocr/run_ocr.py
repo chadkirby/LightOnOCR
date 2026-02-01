@@ -43,13 +43,13 @@ def main():
     epilog = """
     Examples:
       # Process all pages and save to a file
-      uv run run_ocr.py document.pdf -o output.md
+      lighton-ocr document.pdf -o output.md
 
       # Process specific 1-based page numbers (Human style)
-      uv run run_ocr.py document.pdf --pages 1,3,5-10
+      lighton-ocr document.pdf --pages 1,3,5-10
 
       # Process specific 0-based indices (Programmer style)
-      uv run run_ocr.py document.pdf --indices 0,2,4-9
+      lighton-ocr document.pdf --indices 0,2,4-9
     """
 
     parser = argparse.ArgumentParser(

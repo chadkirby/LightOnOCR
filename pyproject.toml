@@ -13,4 +13,8 @@ dependencies = [
 ]
 
 [project.scripts]
-lighton-ocr = "run_ocr:main"
+lighton-ocr = "lightonocr.run_ocr:main"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
