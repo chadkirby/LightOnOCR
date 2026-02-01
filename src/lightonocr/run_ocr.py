@@ -123,26 +123,26 @@ def main():
 
                 inputs = {k: v.to(device=device, dtype=dtype) if v.is_floating_point() else v.to(device) for k, v in inputs.items()}
 
-                print(f"      Generating OCR output (streaming to stderr):\n", file=sys.stderr, flush=True)
+                print(f"      Generating OCR output...", file=sys.stderr, end="", flush=True)
                 start_gen = time.time()
+
+                output_stream.write(f"<!-- PAGE {page_idx} -->\n")
+                output_stream.flush()
 
                 streamer = TextIteratorStreamer(processor.tokenizer, skip_prompt=True, skip_special_tokens=True)
                 generation_kwargs = dict(**inputs, streamer=streamer, max_new_tokens=args.max_tokens)
                 thread = Thread(target=model.generate, kwargs=generation_kwargs)
                 thread.start()
 
-                output_text = ""
                 for new_text in streamer:
-                    print(new_text, end="", file=sys.stderr, flush=True)
-                    output_text += new_text
+                    output_stream.write(new_text)
+                    output_stream.flush()
 
-                gen_duration = time.time() - start_gen
-                print(f"\n      Done. ({gen_duration:.1f}s)", file=sys.stderr)
-
-                output_stream.write(f"<!-- PAGE {page_idx} -->\n")
-                output_stream.write(output_text)
                 output_stream.write("\n\n")
                 output_stream.flush()
+
+                gen_duration = time.time() - start_gen
+                print(f" Done. ({gen_duration:.1f}s)", file=sys.stderr)
 
     except KeyboardInterrupt:
         print("\n\nInterrupted by user. Exiting...", file=sys.stderr)
