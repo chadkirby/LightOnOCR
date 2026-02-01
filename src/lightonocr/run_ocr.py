@@ -8,6 +8,7 @@ import sys
 import argparse
 import re
 import time
+import datetime
 
 def humanize_count(n):
     """Humanizes an integer count (e.g. 1500 -> 1.5k, 1250000 -> 1.25m)."""
@@ -74,6 +75,7 @@ def main():
     group.add_argument("-i", "--indices", help="0-based page indices (e.g. '0', '0-4', '0,2,4'). Matching programmer/array numbering.")
 
     parser.add_argument("-o", "--output", help="Output file path. Defaults to stdout (standard output).")
+    parser.add_argument("--temp-file", help="Temporary file path to use during processing. If not provided, a .tmp suffix is added to the output path.")
     parser.add_argument("--max-tokens", type=int, default=4096, help="Maximum new tokens to generate per page (default: 4096).")
 
     args = parser.parse_args()
@@ -86,18 +88,27 @@ def main():
     device = "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
     dtype = torch.float32 if device == "mps" else torch.bfloat16
 
-    print(f"Loading Model... (Device: {device}, Dtype: {dtype})", file=sys.stderr)
+    output_path = args.output
+    temp_path = None
+    output_stream = None
+    overall_start_time = time.time()
+    total_tokens = 0
 
     try:
-        model = LightOnOcrForConditionalGeneration.from_pretrained("lightonai/LightOnOCR-2-1B", torch_dtype=dtype).to(device)
-        processor = LightOnOcrProcessor.from_pretrained("lightonai/LightOnOCR-2-1B")
-    except Exception as e:
-        print(f"Error loading model: {e}", file=sys.stderr)
-        sys.exit(1)
+        if output_path:
+            temp_path = args.temp_file or f"{output_path}.tmp"
+            output_stream = open(temp_path, "w")
+        else:
+            output_stream = sys.stdout
 
-    output_stream = open(args.output, "w") if args.output else sys.stdout
+        print(f"Loading Model... (Device: {device}, Dtype: {dtype})", file=sys.stderr)
+        try:
+            model = LightOnOcrForConditionalGeneration.from_pretrained("lightonai/LightOnOCR-2-1B", torch_dtype=dtype).to(device)
+            processor = LightOnOcrProcessor.from_pretrained("lightonai/LightOnOCR-2-1B")
+        except Exception as e:
+            print(f"Error loading model: {e}", file=sys.stderr)
+            sys.exit(1)
 
-    try:
         with pdfium.PdfDocument(args.pdf) as pdf:
             num_pages = len(pdf)
 
@@ -134,7 +145,7 @@ def main():
                 print(f"      Generating OCR output...", file=sys.stderr, end="", flush=True)
                 start_gen = time.time()
 
-                output_stream.write(f"<!-- PAGE {page_idx} -->\n")
+                output_stream.write(f"<!-- PAGE {page_idx + 1} -->\n")
                 output_stream.flush()
 
                 streamer = TextIteratorStreamer(processor.tokenizer, skip_prompt=True, skip_special_tokens=True)
@@ -154,6 +165,7 @@ def main():
                     h_count = humanize_count(token_count)
                     print(f"\r      Generating OCR output... {spinner[s_idx]} ({h_count} tokens)", file=sys.stderr, end="", flush=True)
 
+                total_tokens += token_count
                 output_stream.write("\n\n")
                 output_stream.flush()
 
@@ -161,16 +173,52 @@ def main():
                 h_count = humanize_count(token_count)
                 print(f"\r      Generating OCR output... Done. ({gen_duration:.1f}s, {h_count} tokens)", file=sys.stderr)
 
-        output_stream.write("<!-- DONE -->\n")
-        output_stream.flush()
+        # If we successfully reached here and were writing to a file, prepend metadata and move it
+        if output_path:
+            output_stream.close()
+
+            # Read back the partial results
+            with open(temp_path, "r") as f:
+                content = f.read()
+
+            # Prepare metadata
+            duration = time.time() - overall_start_time
+            iso_date = datetime.datetime.now().astimezone().isoformat()
+            rel_pdf = os.path.relpath(args.pdf)
+
+            metadata = f"""---
+Date: {iso_date}
+PDF_File: {rel_pdf}
+Page_Count: {len(target_indices)}
+Token_Count: {total_tokens}
+Duration: {duration:.1f}s
+---
+
+"""
+            # Write metadata + content to the final destination
+            with open(output_path, "w") as f:
+                f.write(metadata)
+                f.write(content)
+
+            # Cleanup temp file
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+
+            print(f"OCR results saved to: {output_path}", file=sys.stderr)
 
     except KeyboardInterrupt:
         print("\n\nInterrupted by user. Exiting...", file=sys.stderr)
-        sys.exit(1)
+        if output_path and output_stream:
+            try:
+                output_stream.close()
+            except:
+                pass
+            if temp_path and os.path.exists(temp_path):
+                print(f"Note: Incomplete results kept in: {temp_path}", file=sys.stderr)
+        sys.exit(130)
     finally:
-        if args.output:
+        if output_stream and not output_stream.closed and output_stream != sys.stdout:
             output_stream.close()
-            print(f"OCR results saved to: {args.output}", file=sys.stderr)
 
     print("Done!", file=sys.stderr)
 
