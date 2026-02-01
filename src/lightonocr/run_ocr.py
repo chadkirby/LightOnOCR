@@ -35,8 +35,8 @@ def humanize_count(n):
     if n < 1000:
         return str(n)
     if n < 1000000:
-        return f"{n / 1000:.1f}k"
-    return f"{n / 1000000:.2f}m"
+        return f"{n / 1000:.2f}k"
+    return f"{n / 1000000:.3f}m"
 
 def parse_pages(pages_str, num_pages, offset=0):
     """Parses a page range string into a list of indices."""
@@ -97,6 +97,7 @@ def main():
     parser.add_argument("-o", "--output", help="Output file path. Defaults to stdout (standard output).")
     parser.add_argument("--temp-file", help="Temporary file path to use during processing. If not provided, a .tmp suffix is added to the output path.")
     parser.add_argument("--max-tokens", type=int, default=4096, help="Maximum new tokens to generate per page (default: 4096).")
+    parser.add_argument("--resume", action="store_true", help="Resume OCR from an existing output file by skipping already-processed pages.")
 
     args = parser.parse_args()
 
@@ -143,6 +144,52 @@ def main():
             included_pages = []
             total_tokens = 0
             overall_start_time = time.time()
+            base_content = ""
+
+            # Resume logic: check existing output file and skip completed pages
+            if args.resume and output_path and os.path.exists(output_path):
+                print(f"Checking existing output for progress: {output_path}", file=sys.stderr)
+                try:
+                    with open(output_path, "r") as f:
+                        file_text = f.read()
+
+                    if file_text.startswith("---"):
+                        parts = file_text.split("---", 2)
+                        if len(parts) >= 3:
+                            header = parts[1]
+                            base_content = parts[2].lstrip()
+
+                            # Extract OCR_Pages
+                            m_pages = re.search(r"OCR_Pages:\s*(.*)", header)
+                            if m_pages:
+                                ocr_pages_str = m_pages.group(1).strip()
+                                completed_indices = parse_pages(ocr_pages_str, num_pages, offset=1)
+                                target_indices = [idx for idx in target_indices if idx not in completed_indices]
+                                included_pages = [p + 1 for p in sorted(completed_indices)]
+                                print(f"  Found {len(completed_indices)} completed pages. {len(target_indices)} pages remaining.", file=sys.stderr)
+
+                            # Extract cumulative stats
+                            m_tokens = re.search(r"Token_Count:\s*(\d+)", header)
+                            if m_tokens:
+                                total_tokens = int(m_tokens.group(1))
+
+                            m_dur = re.search(r"Duration:\s*([\d\.]+)s", header)
+                            if m_dur:
+                                prev_dur = float(m_dur.group(1))
+                                overall_start_time -= prev_dur
+                except Exception as e:
+                    print(f"  Warning: Could not parse existing output for resume: {e}", file=sys.stderr)
+
+            if not target_indices:
+                print("All requested pages are already processed. Done!", file=sys.stderr)
+                if output_path and temp_path and os.path.exists(temp_path):
+                    os.remove(temp_path)
+                return
+
+            # If we have base content (from resume), write it to the temp file first
+            if base_content:
+                output_stream.write(base_content)
+                output_stream.flush()
 
             print(f"Processing {len(target_indices)} pages from '{args.pdf}'...", file=sys.stderr)
 
