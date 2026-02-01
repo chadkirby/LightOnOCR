@@ -151,6 +151,9 @@ def main():
                 gen_duration = time.time() - start_gen
                 print(f"\r      Generating OCR output... Done. ({gen_duration:.1f}s)", file=sys.stderr)
 
+        output_stream.write("<!-- DONE -->\n")
+        output_stream.flush()
+
     except KeyboardInterrupt:
         print("\n\nInterrupted by user. Exiting...", file=sys.stderr)
         sys.exit(1)
