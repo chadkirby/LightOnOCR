@@ -141,15 +141,15 @@ def main():
                     output_stream.flush()
                     token_count += 1
 
-                    # Animate a spinner on stderr every token
+                    # Animate a spinner and show token count on stderr
                     s_idx = token_count % len(spinner)
-                    print(f"\r      Generating OCR output... {spinner[s_idx]}", file=sys.stderr, end="", flush=True)
+                    print(f"\r      Generating OCR output... {spinner[s_idx]} ({token_count:05d} tokens)", file=sys.stderr, end="", flush=True)
 
                 output_stream.write("\n\n")
                 output_stream.flush()
 
                 gen_duration = time.time() - start_gen
-                print(f"\r      Generating OCR output... Done. ({gen_duration:.1f}s)", file=sys.stderr)
+                print(f"\r      Generating OCR output... Done. ({gen_duration:.1f}s, {token_count} tokens)", file=sys.stderr)
 
         output_stream.write("<!-- DONE -->\n")
         output_stream.flush()
