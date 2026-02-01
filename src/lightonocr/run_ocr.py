@@ -1,5 +1,6 @@
 import torch
-from transformers import LightOnOcrForConditionalGeneration, LightOnOcrProcessor
+from transformers import LightOnOcrForConditionalGeneration, LightOnOcrProcessor, TextIteratorStreamer
+from threading import Thread
 import pypdfium2 as pdfium
 from PIL import Image
 import os
@@ -122,16 +123,21 @@ def main():
 
                 inputs = {k: v.to(device=device, dtype=dtype) if v.is_floating_point() else v.to(device) for k, v in inputs.items()}
 
-                print(f"      Generating OCR output...", file=sys.stderr, end="", flush=True)
+                print(f"      Generating OCR output (streaming to stderr):\n", file=sys.stderr, flush=True)
                 start_gen = time.time()
 
-                output_ids = model.generate(**inputs, max_new_tokens=args.max_tokens)
+                streamer = TextIteratorStreamer(processor.tokenizer, skip_prompt=True, skip_special_tokens=True)
+                generation_kwargs = dict(**inputs, streamer=streamer, max_new_tokens=args.max_tokens)
+                thread = Thread(target=model.generate, kwargs=generation_kwargs)
+                thread.start()
+
+                output_text = ""
+                for new_text in streamer:
+                    print(new_text, end="", file=sys.stderr, flush=True)
+                    output_text += new_text
 
                 gen_duration = time.time() - start_gen
-                print(f" Done. ({gen_duration:.1f}s)", file=sys.stderr)
-
-                generated_ids = output_ids[0, inputs["input_ids"].shape[1]:]
-                output_text = processor.decode(generated_ids, skip_special_tokens=True)
+                print(f"\n      Done. ({gen_duration:.1f}s)", file=sys.stderr)
 
                 output_stream.write(f"<!-- PAGE {page_idx} -->\n")
                 output_stream.write(output_text)
